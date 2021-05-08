@@ -1,0 +1,148 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Dec 13 12:35:47 2020
+
+@author: 作者：朱树盛
+"""
+print("请输入带隙值 EG=")
+EG=eval(input())
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.interpolate, scipy.integrate, pandas, sys
+import winreg
+assert sys.version_info >= (3,6), 'Requires Python 3.6+'
+from numericalunits import W, K, nm, m, cm, s, eV, meV, V, mA, c0, hPlanck, kB, e
+Tcell = 300 * K
+key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders', )
+cwd= winreg.QueryValueEx(key, "Desktop")[0]
+worksheet=pandas.read_excel(cwd+"\\FSL6500K1000LUX.xls")
+Spectral_array = np.array(worksheet)
+def write_txt(x,y,filename):
+    f=open(filename,'w')
+    for i,j in zip(x,y):
+        f.write(str(i)+','+str(j)+'\n')
+    f.close()
+Spectraldata = Spectral_array[1:,[0,2]]
+Spectraldata[:,0] *=nm
+Spectraldata[:,1] *=W/m**2/nm
+λ_min = 280 * nm
+λ_max = 4000 * nm
+E_min = hPlanck * c0 / λ_max
+E_max = hPlanck * c0 / λ_min
+Spectraldatainterp = scipy.interpolate.interp1d(Spectraldata[:,0], Spectraldata[:,1])
+λs = np.linspace(λ_min, λ_max, num=500,endpoint = False)
+y_values = np.array([Spectraldatainterp(x) for x in λs])
+write_txt(λs / nm , y_values / (W/m**2/nm),cwd+'\\Indoorspectral.xls')
+
+
+def SPhotonsPerTEA(Ephoton):
+    λ = hPlanck * c0 / Ephoton
+    return Spectraldatainterp(λ) * (1 / Ephoton) * (hPlanck * c0 / Ephoton**2)
+print("每秒每平方米的光子数")
+print(SPhotonsPerTEA(2 * eV) * (1 * meV) * (1 * m**2) * (1 * s))
+PowerPerTEA = lambda E : E * SPhotonsPerTEA(E)
+solar_constant = scipy.integrate.quad(PowerPerTEA,E_min,E_max, full_output=1)[0]
+print("太阳电池入射功率")
+print(solar_constant / (W/m**2))
+def solar_photons_above_gap(Egap):
+    return scipy.integrate.quad(SPhotonsPerTEA, Egap, E_max, full_output=1)[0]
+print("高于带隙EG={:.2f}能量的每秒每平方米的光子数".format(EG))
+print(solar_photons_above_gap(EG * eV) * (1 * m**2) * (1 * s))
+
+Egap_list = np.linspace(1 * eV, 3 * eV, num=100,endpoint = False)
+y_values = np.array([solar_photons_above_gap(E) for E in Egap_list])
+write_txt(Egap_list / eV , y_values / (1e21 * m**-2 * s**-1),cwd+'\\solar_photons_above_gap.txt')
+def RR0(Egap):
+    integrand = lambda E : E**2 / (np.exp(E / (kB * Tcell)) - 1)
+    integral = scipy.integrate.quad(integrand, Egap, E_max, full_output=1)[0]
+    return ((2 * np.pi) / (c0**2 * hPlanck**3)) * integral
+def current_density(voltage, Egap):
+    return e * (solar_photons_above_gap(Egap) - RR0(Egap) * np.exp(e * voltage / (kB * Tcell)))
+def JSC(Egap):
+    return current_density(0, Egap)
+def VOC(Egap):
+    return (kB * Tcell / e) * np.log(solar_photons_above_gap(Egap) / RR0(Egap))
+print("带隙EG={:.2f}时的短路电流".format(EG))
+print(JSC(EG * eV) / (mA / cm**2))
+print("带隙EG={:.2f}时的开路电压".format(EG))
+print(VOC(EG * eV) / V)
+Egap_list = np.linspace(1 * eV, 3 * eV, num=100, endpoint = False)
+JSC_list = np.array([JSC(E) for E in Egap_list])
+write_txt(Egap_list / eV , JSC_list / (mA / cm**2),cwd+'\\JSC.txt')
+Egap_list = np.linspace(1 * eV, 3 * eV, num=100, endpoint = False)
+VOC_list = np.array([VOC(E) for E in Egap_list])
+write_txt(Egap_list / eV , VOC_list / (V),cwd+'\\VOC.txt')
+from scipy.optimize import fmin
+def fmax(func_to_maximize, initial_guess=0):
+    func_to_minimize = lambda x : -func_to_maximize(x)
+    return fmin(func_to_minimize, initial_guess, disp=False)[0]
+def V_mpp(Egap):
+    return fmax(lambda voltage : voltage * current_density(voltage, Egap))
+def J_mpp(Egap):
+    return current_density(V_mpp(Egap), Egap)
+def max_power(Egap):
+    voltage = V_mpp(Egap)
+    return voltage * current_density(voltage, Egap)
+def max_efficiency(Egap):
+    return max_power(Egap) / solar_constant
+print("带隙EG={:.2f}时的理想效率".format(EG))
+print(max_efficiency(EG * eV))
+Egap_list = np.linspace(1 * eV, 3 * eV, num=100, endpoint = False)
+eff_list = np.array([max_efficiency(E) for E in Egap_list])
+write_txt(Egap_list / eV , eff_list ,cwd+'\\max_efficiency.txt')
+def fill_factor(Egap):
+    return max_power(Egap) / (JSC(Egap) * VOC(Egap))
+Egap_list = np.linspace(1 * eV, 3 * eV, num=100, endpoint = False)
+FF_list = np.array([fill_factor(E) for E in Egap_list])
+write_txt(Egap_list / eV , FF_list ,cwd+'\\fill_factor.txt')
+
+def useful_electricity(Egap):
+    return max_efficiency(Egap)
+
+def below_gap_energy(Egap):
+    integrand = lambda E : E * SPhotonsPerTEA(E)
+    return scipy.integrate.quad(integrand, E_min, Egap, full_output=1)[0] / solar_constant
+
+def excess_beyond_gap(Egap):
+    integrand = lambda E : (E - Egap) * SPhotonsPerTEA(E)
+    return scipy.integrate.quad(integrand, Egap, E_max, full_output=1)[0] / solar_constant
+
+def mpp_recombination(Egap):
+    return (solar_photons_above_gap(Egap) - J_mpp(Egap) / e) * Egap / solar_constant
+
+def mpp_voltage_is_less_than_gap(Egap):
+    return J_mpp(Egap) * (Egap / e - V_mpp(Egap)) / solar_constant
+breakdown = (useful_electricity(EG * eV),
+             below_gap_energy(EG * eV),
+             excess_beyond_gap(EG * eV),
+             mpp_recombination(EG * eV),
+             mpp_voltage_is_less_than_gap(EG * eV))
+print(breakdown)
+sum(breakdown)
+Egap_list = np.linspace(1 * eV, 3 * eV, num=100, endpoint = False)
+loss_list = [[useful_electricity(Egap), below_gap_energy(Egap), excess_beyond_gap(Egap),
+                      mpp_recombination(Egap), mpp_voltage_is_less_than_gap(Egap)] for Egap in Egap_list]
+loss_list = np.array(loss_list)
+loss_list = np.cumsum(loss_list,axis=1)
+fig = plt.figure()
+ax1 = fig.add_subplot(111)
+ax1.fill_between(Egap_list / eV,              0, loss_list[:,0], facecolor="k")
+write_txt(Egap_list / eV, loss_list[:,0] ,cwd+'\\LOSS0.txt')
+ax1.fill_between(Egap_list / eV, loss_list[:,0], loss_list[:,1], facecolor="m")
+write_txt(Egap_list / eV, loss_list[:,1] ,cwd+'\\LOSS1.txt')
+ax1.fill_between(Egap_list / eV, loss_list[:,1], loss_list[:,2], facecolor="g")
+write_txt(Egap_list / eV, loss_list[:,2] ,cwd+'\\LOSS2.txt')
+ax1.fill_between(Egap_list / eV, loss_list[:,2], loss_list[:,3], facecolor="b")
+write_txt(Egap_list / eV, loss_list[:,3] ,cwd+'\\LOSS3.txt')
+ax1.fill_between(Egap_list / eV, loss_list[:,3],              1, facecolor="0.75")
+write_txt(Egap_list / eV, [1]*len(Egap_list / eV) ,cwd+'\\LOSS4.txt')
+plt.title('POWER GOES TO...\n'
+          'Useful electricity (black);\n'
+          'Below-gap photons (magenta);\n'
+          'e-h relaxation to the band edges (green);\n'
+          'Current loss from radiative recombination (blue)\n'
+          'Voltage is less than bandgap (gray)')
+plt.xlabel('Bandgap (eV)')
+plt.ylabel('Fraction of incident light power')
+plt.xlim(1, 3)
+plt.ylim(0,1);
