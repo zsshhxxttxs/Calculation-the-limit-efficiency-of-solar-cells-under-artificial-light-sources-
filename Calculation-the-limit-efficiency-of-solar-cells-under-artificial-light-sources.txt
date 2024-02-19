@@ -2,9 +2,9 @@
 """
 Created on Sun Dec 13 12:35:47 2020
 
-@author: 作者：朱树盛
+@author: Shusheng Zhu
 """
-print("请输入带隙值 EG=")
+print("inout EG=")
 EG=eval(input())
 import numpy as np
 import matplotlib.pyplot as plt
@@ -38,15 +38,15 @@ write_txt(λs / nm , y_values / (W/m**2/nm),cwd+'\\Indoorspectral.xls')
 def SPhotonsPerTEA(Ephoton):
     λ = hPlanck * c0 / Ephoton
     return Spectraldatainterp(λ) * (1 / Ephoton) * (hPlanck * c0 / Ephoton**2)
-print("每秒每平方米的光子数")
+print("Number of photons per square meter per second")
 print(SPhotonsPerTEA(2 * eV) * (1 * meV) * (1 * m**2) * (1 * s))
 PowerPerTEA = lambda E : E * SPhotonsPerTEA(E)
 solar_constant = scipy.integrate.quad(PowerPerTEA,E_min,E_max, full_output=1)[0]
-print("太阳电池入射功率")
+print("source calibration / Solar cell incident power")
 print(solar_constant / (W/m**2))
 def solar_photons_above_gap(Egap):
     return scipy.integrate.quad(SPhotonsPerTEA, Egap, E_max, full_output=1)[0]
-print("高于带隙EG={:.2f}能量的每秒每平方米的光子数".format(EG))
+print("Above EG={:.2f}Energy in photons per square meter per second".format(EG))
 print(solar_photons_above_gap(EG * eV) * (1 * m**2) * (1 * s))
 
 Egap_list = np.linspace(1 * eV, 3 * eV, num=100,endpoint = False)
@@ -62,9 +62,9 @@ def JSC(Egap):
     return current_density(0, Egap)
 def VOC(Egap):
     return (kB * Tcell / e) * np.log(solar_photons_above_gap(Egap) / RR0(Egap))
-print("带隙EG={:.2f}时的短路电流".format(EG))
+print("When EG={:.2f} , JSC".format(EG))
 print(JSC(EG * eV) / (mA / cm**2))
-print("带隙EG={:.2f}时的开路电压".format(EG))
+print("When EG={:.2f},VOC".format(EG))
 print(VOC(EG * eV) / V)
 Egap_list = np.linspace(1 * eV, 3 * eV, num=100, endpoint = False)
 JSC_list = np.array([JSC(E) for E in Egap_list])
@@ -85,7 +85,7 @@ def max_power(Egap):
     return voltage * current_density(voltage, Egap)
 def max_efficiency(Egap):
     return max_power(Egap) / solar_constant
-print("带隙EG={:.2f}时的理想效率".format(EG))
+print("When EG={:.2f},ideal pce".format(EG))
 print(max_efficiency(EG * eV))
 Egap_list = np.linspace(1 * eV, 3 * eV, num=100, endpoint = False)
 eff_list = np.array([max_efficiency(E) for E in Egap_list])
